@@ -1,44 +1,56 @@
 steps:
-  - name: gradle
+  - name: "gcr.io/cloud-builders/git"
+    secretEnv: ["SSH_KEY"]
+    entrypoint: "bash"
     args:
-      - chmod
-      - +x
-      - gradlew
-      - &&
-      - ./gradlew
-      - clean
-      - build
+      - -c
+      - |
+        git config --global \
+        url."ssh://git@github.com".insteadOf "https://github.com"
+        echo "$$SSH_KEY" >> /root/.ssh/id_rsa
+        chmod 400 /root/.ssh/id_rsa
+        echo ${_KNOWN_HOST_GITHUB} >> /root/.ssh/known_hosts
+    volumes:
+      - name: "ssh"
+        path: /root/.ssh
+  - name: gcr.io/cloud-builders/git
+    args: ["submodule", "update", "--init", "--recursive"]
+    volumes:
+      - name: "ssh"
+        path: /root/.ssh
+  - name: gradle
+    args: ["./gradlew", "clean", "build", "-x", "test"]
   - name: gcr.io/cloud-builders/docker
     args:
       - build
-      - '--no-cache'
-      - '-t'
-      - '$_GCR_HOSTNAME/$PROJECT_ID/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA'
+      - "--no-cache"
+      - "-t"
+      - "$_GCR_HOSTNAME/$PROJECT_ID/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA"
       - .
-      - '-f'
+      - "-f"
       - Dockerfile
     id: Build
   - name: gcr.io/cloud-builders/docker
     args:
       - push
-      - '$_GCR_HOSTNAME/$PROJECT_ID/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA'
+      - "$_GCR_HOSTNAME/$PROJECT_ID/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA"
     id: Push
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
     args:
       - run
       - services
       - update
       - $_SERVICE_NAME
-      - '--platform=managed'
-      - '--image=$_GCR_HOSTNAME/$PROJECT_ID/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA'
+      - "--platform=managed"
+      - "--image=$_GCR_HOSTNAME/$PROJECT_ID/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA"
       - >-
         --labels=managed-by=gcp-cloud-build-deploy-cloud-run,commit-sha=$COMMIT_SHA,gcb-build-id=$BUILD_ID,gcb-trigger-id=$_TRIGGER_ID,$_LABELS
-      - '--region=$_DEPLOY_REGION'
-      - '--quiet'
+      - "--region=$_DEPLOY_REGION"
+      - "--quiet"
     id: Deploy
     entrypoint: gcloud
 images:
-  - '$_GCR_HOSTNAME/$PROJECT_ID/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA'
+  - "$_GCR_HOSTNAME/$PROJECT_ID/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA"
 options:
   substitutionOption: ALLOW_LOOSE
 substitutions:
@@ -48,6 +60,10 @@ substitutions:
   _PLATFORM: managed
   _LABELS: gcb-trigger-id=d6eaeb20-0339-4ce8-9b9c-8ee56e2bbeec
   _TRIGGER_ID: d6eaeb20-0339-4ce8-9b9c-8ee56e2bbeec
+availableSecrets:
+  secretManager:
+    - versionName: projects/brave-reason-355108/secrets/github_ssh/versions/latest
+      env: "SSH_KEY"
 tags:
   - gcp-cloud-build-deploy-cloud-run
   - gcp-cloud-build-deploy-cloud-run-managed
